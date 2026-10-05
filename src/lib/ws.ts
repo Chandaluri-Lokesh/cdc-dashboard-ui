@@ -14,7 +14,7 @@ type Handler = (rows: MetricRow[], isInit: boolean) => void
 
 export function connectMetricsWs(onData: Handler): () => void {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${protocol}://${location.host}/ws/metrics`
+  const url = 'ws://127.0.0.1:8000/api/metrics/ws'
   let ws: WebSocket
   let stopped = false
   let retryTimer: ReturnType<typeof setTimeout>
