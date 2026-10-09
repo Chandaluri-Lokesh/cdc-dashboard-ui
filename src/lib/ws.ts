@@ -3,9 +3,10 @@ export type MetricRow = {
   doc_id: string
   collection: string
   operation: string
-  e2e_lat_ms: number
   debezium_lat_ms: number
+  consumer_lat_ms: number
   write_lat_ms: number
+  e2e_lat_ms: number
   recorded_at: string
 }
 

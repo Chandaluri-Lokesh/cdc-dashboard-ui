@@ -36,3 +36,12 @@ export const simulateChain = () =>
 
 export const simulateUpdate = () =>
   api.post('/simulate/update').then(r => r.data)
+
+export const fetchSimulatorStatus = () =>
+  api.get('/simulate/status').then(r => r.data as { running: boolean })
+
+export const startSimulator = () =>
+  api.post('/simulate/start').then(r => r.data)
+
+export const stopSimulator = () =>
+  api.post('/simulate/stop').then(r => r.data)

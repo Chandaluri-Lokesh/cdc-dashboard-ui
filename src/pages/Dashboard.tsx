@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
-import { fetchMetricsSummary, fetchEventsByCollection } from '../lib/api'
+import {
+  fetchMetricsSummary, fetchEventsByCollection,
+  fetchSimulatorStatus, startSimulator, stopSimulator,
+} from '../lib/api'
 import { connectMetricsWs, MetricRow } from '../lib/ws'
 
 type Summary = {
@@ -24,10 +27,12 @@ function MetricCard({ label, value, unit = '' }: { label: string; value: string 
 }
 
 export default function Dashboard() {
-  const [summary, setSummary]     = useState<Summary | null>(null)
-  const [colStats, setColStats]   = useState<CollectionStat[]>([])
-  const [liveRows, setLiveRows]   = useState<MetricRow[]>([])
-  const [chartData, setChartData] = useState<{ t: string; e2e: number }[]>([])
+  const [summary, setSummary]         = useState<Summary | null>(null)
+  const [colStats, setColStats]       = useState<CollectionStat[]>([])
+  const [liveRows, setLiveRows]       = useState<MetricRow[]>([])
+  const [chartData, setChartData]     = useState<{ t: string; e2e: number }[]>([])
+  const [simRunning, setSimRunning]   = useState(false)
+  const [simBusy, setSimBusy]         = useState(false)
   const disconnect = useRef<(() => void) | null>(null)
 
   // Poll summary every 5 s
@@ -52,6 +57,17 @@ export default function Dashboard() {
     return () => clearInterval(id)
   }, [])
 
+  // Poll simulator status every 3 s
+  useEffect(() => {
+    const load = () =>
+      fetchSimulatorStatus()
+        .then(d => setSimRunning(d.running))
+        .catch(() => {})
+    load()
+    const id = setInterval(load, 3000)
+    return () => clearInterval(id)
+  }, [])
+
   // WebSocket for live metrics
   useEffect(() => {
     disconnect.current = connectMetricsWs((rows, isInit) => {
@@ -70,12 +86,51 @@ export default function Dashboard() {
     return () => disconnect.current?.()
   }, [])
 
+  const handleSimToggle = async () => {
+    setSimBusy(true)
+    try {
+      if (simRunning) {
+        await stopSimulator()
+        setSimRunning(false)
+      } else {
+        await startSimulator()
+        setSimRunning(true)
+      }
+    } catch {
+      // status poll will correct the state on next tick
+    } finally {
+      setSimBusy(false)
+    }
+  }
+
   const lat = summary?.latency ?? {}
   const counts = summary?.table_counts ?? {}
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-white">Live Dashboard</h1>
+      {/* Header + simulator control */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-white">Live Dashboard</h1>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-sm">
+            <span className={`inline-block w-2 h-2 rounded-full ${simRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+            <span className={simRunning ? 'text-green-400' : 'text-gray-500'}>
+              {simRunning ? 'Simulation running' : 'Simulation stopped'}
+            </span>
+          </span>
+          <button
+            onClick={handleSimToggle}
+            disabled={simBusy}
+            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors disabled:opacity-50 ${
+              simRunning
+                ? 'bg-red-600 hover:bg-red-700 text-white'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+            }`}
+          >
+            {simBusy ? '…' : simRunning ? 'Stop Simulation' : 'Start Simulation'}
+          </button>
+        </div>
+      </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -149,41 +204,56 @@ export default function Dashboard() {
 
       {/* Live event feed */}
       <div className="card">
-        <h2 className="text-sm font-medium text-gray-400 mb-3">Live Event Feed</h2>
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Live CDC Event Feed</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-500 text-xs uppercase border-b border-gray-800">
-                <th className="py-2 text-left">Time</th>
-                <th className="py-2 text-left">Collection</th>
-                <th className="py-2 text-left">Op</th>
-                <th className="py-2 text-left">Doc ID</th>
-                <th className="py-2 text-right">E2E ms</th>
+                <th className="py-2 text-left pr-4">Time</th>
+                <th className="py-2 text-left pr-4">Collection</th>
+                <th className="py-2 text-left pr-4">Op</th>
+                <th className="py-2 text-left pr-4">Doc ID</th>
+                <th className="py-2 text-right pr-4 whitespace-nowrap" title="MongoDB → Kafka">Debezium</th>
+                <th className="py-2 text-right pr-4 whitespace-nowrap" title="Kafka → Consumer">Kafka</th>
+                <th className="py-2 text-right pr-4 whitespace-nowrap" title="Consumer → DB write">Write</th>
+                <th className="py-2 text-right whitespace-nowrap" title="MongoDB → DB total">E2E</th>
               </tr>
             </thead>
             <tbody>
-              {[...liveRows].reverse().slice(0, 20).map(row => (
+              {[...liveRows].reverse().slice(0, 25).map(row => (
                 <tr key={row.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                  <td className="py-1.5 text-gray-500 font-mono text-xs">
+                  <td className="py-1.5 text-gray-500 font-mono text-xs pr-4 whitespace-nowrap">
                     {new Date(row.recorded_at).toLocaleTimeString()}
                   </td>
-                  <td className="py-1.5 text-gray-300">{row.collection}</td>
-                  <td className="py-1.5">
+                  <td className="py-1.5 text-gray-300 pr-4">{row.collection}</td>
+                  <td className="py-1.5 pr-4">
                     <OpBadge op={row.operation} />
                   </td>
-                  <td className="py-1.5 text-gray-400 font-mono text-xs truncate max-w-[160px]">
+                  <td className="py-1.5 text-gray-400 font-mono text-xs pr-4 max-w-[180px] truncate">
                     {row.doc_id}
                   </td>
-                  <td className="py-1.5 text-right">
-                    <span className={row.e2e_lat_ms < 500 ? 'text-green-400' : row.e2e_lat_ms < 2000 ? 'text-yellow-400' : 'text-red-400'}>
-                      {row.e2e_lat_ms}
+                  <td className="py-1.5 text-right pr-4 text-gray-400 font-mono text-xs">
+                    {row.debezium_lat_ms} ms
+                  </td>
+                  <td className="py-1.5 text-right pr-4 text-gray-400 font-mono text-xs">
+                    {row.consumer_lat_ms} ms
+                  </td>
+                  <td className="py-1.5 text-right pr-4 text-gray-400 font-mono text-xs">
+                    {row.write_lat_ms} ms
+                  </td>
+                  <td className="py-1.5 text-right font-mono text-xs font-medium">
+                    <span className={
+                      row.e2e_lat_ms < 500  ? 'text-green-400' :
+                      row.e2e_lat_ms < 2000 ? 'text-yellow-400' : 'text-red-400'
+                    }>
+                      {row.e2e_lat_ms} ms
                     </span>
                   </td>
                 </tr>
               ))}
               {liveRows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-gray-500">
+                  <td colSpan={8} className="py-4 text-center text-gray-500">
                     Waiting for events via WebSocket…
                   </td>
                 </tr>
@@ -191,6 +261,9 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
+        <p className="mt-2 text-xs text-gray-600">
+          Debezium = MongoDB→Kafka &nbsp;·&nbsp; Kafka = Kafka→Consumer &nbsp;·&nbsp; Write = Consumer→DB &nbsp;·&nbsp; E2E = total
+        </p>
       </div>
     </div>
   )
