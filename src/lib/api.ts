@@ -30,6 +30,9 @@ export const insertDocument = (docType: string, fields: Record<string, unknown>)
 export const deleteDocument = (docType: string, docId: string) =>
   api.delete(`/documents/${docType}/${encodeURIComponent(docId)}`).then(r => r.data)
 
+export const fetchDocumentList = (docType: string) =>
+  api.get(`/documents/${docType}`).then(r => r.data as { id: string; key: string; status: string | null; updated_at: string | null }[])
+
 // ── Simulator ────────────────────────────────────────────────────────────────
 export const simulateChain = () =>
   api.post('/simulate/chain').then(r => r.data)

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { insertDocument, simulateChain, simulateUpdate } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { insertDocument, simulateChain, simulateUpdate, fetchDocumentList } from '../lib/api'
 
 type DocType = 'rfq' | 'po' | 'asn' | 'grn' | 'invoice'
 
@@ -561,8 +561,32 @@ export default function Documents() {
 
   const DOC_LABELS: Record<DocType, string> = { rfq: 'RFQ', po: 'Purchase Order', asn: 'Shipment Notice', grn: 'Goods Receipt', invoice: 'Invoice' }
 
+  type DocRow = { id: string; key: string; status: string | null; updated_at: string | null }
+  const [docList, setDocList]     = useState<DocRow[]>([])
+  const [listLoading, setListLoading] = useState(false)
+
+  const loadDocList = (type: DocType) => {
+    setListLoading(true)
+    fetchDocumentList(type)
+      .then(setDocList)
+      .catch(() => setDocList([]))
+      .finally(() => setListLoading(false))
+  }
+
+  useEffect(() => { loadDocList(docType) }, [docType])
+
+  const STATUS_COLOR: Record<string, string> = {
+    OPEN: 'text-blue-400', CONFIRMED: 'text-green-400', CLOSED: 'text-gray-400',
+    CANCELLED: 'text-red-400', PAID: 'text-green-400', APPROVED: 'text-green-400',
+    DISPUTED: 'text-red-400', PENDING_PAYMENT: 'text-yellow-400',
+    IN_TRANSIT: 'text-blue-400', DELIVERED: 'text-green-400',
+    COMPLETED: 'text-green-400', PARTIAL: 'text-yellow-400',
+    PARTIAL_DELIVERY: 'text-yellow-400', PENDING: 'text-yellow-400',
+    PARTIALLY_DELIVERED: 'text-yellow-400',
+  }
+
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-4">
       <h1 className="text-xl font-semibold text-white">Documents</h1>
 
       {/* Quick actions */}
@@ -586,44 +610,77 @@ export default function Documents() {
         )}
       </div>
 
-      {/* Manual insert */}
-      <div className="card">
-        <h2 className="text-sm font-medium text-gray-400 mb-4">New Document</h2>
+      {/* Two-panel: form left, doc list right */}
+      <div className="flex gap-6 items-start">
 
-        {/* Doc type selector */}
-        <div className="flex gap-2 mb-6">
-          {(Object.keys(DOC_LABELS) as DocType[]).map(t => (
-            <button
-              key={t}
-              onClick={() => { setDocType(t); setStatus(null); setError(null) }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${docType === t ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
-            >
-              {DOC_LABELS[t]}
-            </button>
-          ))}
+        {/* Left — form */}
+        <div className="flex-1 min-w-0 card">
+          <h2 className="text-sm font-medium text-gray-400 mb-4">New Document</h2>
+
+          {/* Doc type selector */}
+          <div className="flex gap-2 mb-6 flex-wrap">
+            {(Object.keys(DOC_LABELS) as DocType[]).map(t => (
+              <button
+                key={t}
+                onClick={() => { setDocType(t); setStatus(null); setError(null) }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${docType === t ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
+              >
+                {DOC_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          {/* Active form */}
+          <div className="mb-6">
+            {docType === 'rfq'     && <RfqFormView     form={rfq} setForm={setRfq} />}
+            {docType === 'po'      && <PoFormView       form={po}  setForm={setPo} />}
+            {docType === 'asn'     && <AsnFormView      form={asn} setForm={setAsn} />}
+            {docType === 'grn'     && <GrnFormView      form={grn} setForm={setGrn} />}
+            {docType === 'invoice' && <InvoiceFormView  form={inv} setForm={setInv} />}
+          </div>
+
+          <div className="flex items-center gap-3 pt-4 border-t border-gray-800">
+            <button className="btn-primary" onClick={async () => { await handleInsert(); loadDocList(docType) }}>Submit to MongoDB</button>
+            <button className="btn-secondary text-sm" onClick={handleReset}>Reset Form</button>
+          </div>
+
+          {status && <p className="mt-3 text-green-400 text-sm">{status}</p>}
+          {error  && <p className="mt-3 text-red-400 text-sm">{error}</p>}
         </div>
 
-        {/* Active form */}
-        <div className="mb-6">
-          {docType === 'rfq'     && <RfqFormView     form={rfq} setForm={setRfq} />}
-          {docType === 'po'      && <PoFormView       form={po}  setForm={setPo} />}
-          {docType === 'asn'     && <AsnFormView      form={asn} setForm={setAsn} />}
-          {docType === 'grn'     && <GrnFormView      form={grn} setForm={setGrn} />}
-          {docType === 'invoice' && <InvoiceFormView  form={inv} setForm={setInv} />}
+        {/* Right — existing docs */}
+        <div className="w-72 shrink-0 space-y-3">
+          <div className="card">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-medium text-gray-400">{DOC_LABELS[docType]}s in DB</h2>
+              <button className="text-xs text-gray-500 hover:text-gray-300" onClick={() => loadDocList(docType)}>↻ Refresh</button>
+            </div>
+            {listLoading ? (
+              <p className="text-xs text-gray-500">Loading…</p>
+            ) : docList.length === 0 ? (
+              <p className="text-xs text-gray-500">No documents found.</p>
+            ) : (
+              <div className="space-y-1 max-h-[520px] overflow-y-auto pr-1">
+                {docList.map(d => (
+                  <div key={d.id} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-800 group">
+                    <span className="font-mono text-xs text-gray-300 truncate flex-1">{d.key}</span>
+                    {d.status && (
+                      <span className={`text-xs ml-2 shrink-0 ${STATUS_COLOR[d.status] ?? 'text-gray-400'}`}>
+                        {d.status.replace('_', ' ')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card text-xs text-gray-500 space-y-1 leading-relaxed">
+            <p className="text-gray-400 font-medium text-sm">How it works</p>
+            <p>Documents submitted here write directly to MongoDB. Debezium captures the change, streams it through Kafka, and the consumer propagates it to Postgres and Neo4j in real time.</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 pt-4 border-t border-gray-800">
-          <button className="btn-primary" onClick={handleInsert}>Submit to MongoDB</button>
-          <button className="btn-secondary text-sm" onClick={handleReset}>Reset Form</button>
-        </div>
-
-        {status && <p className="mt-3 text-green-400 text-sm">{status}</p>}
-        {error  && <p className="mt-3 text-red-400 text-sm">{error}</p>}
-      </div>
-
-      <div className="card text-sm text-gray-400 space-y-1">
-        <p className="text-gray-300 font-medium">How it works</p>
-        <p>Each submitted document writes directly to MongoDB. Debezium detects the change, produces a Kafka event, and the consumer propagates it to Postgres and Neo4j in real time. Watch the Dashboard feed to see it arrive.</p>
       </div>
     </div>
   )
