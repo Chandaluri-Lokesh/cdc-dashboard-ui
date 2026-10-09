@@ -1,4 +1,5 @@
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import Home       from './pages/Home'
 import Dashboard  from './pages/Dashboard'
 import Documents  from './pages/Documents'
 import Graph      from './pages/Graph'
@@ -11,31 +12,45 @@ const navCls = ({ isActive }: { isActive: boolean }) =>
       : 'text-gray-400 hover:text-white hover:bg-gray-800'
   }`
 
+function Layout() {
+  const location = useLocation()
+  const isHome = location.pathname === '/'
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* Nav */}
+      <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
+        <NavLink to="/" className="text-lg font-bold text-white tracking-tight hover:text-blue-300 transition-colors">
+          P2P CDC
+        </NavLink>
+        {!isHome && (
+          <nav className="flex gap-1">
+            <NavLink to="/dashboard"     end className={navCls}>Dashboard</NavLink>
+            <NavLink to="/documents"         className={navCls}>Documents</NavLink>
+            <NavLink to="/graph"             className={navCls}>Graph</NavLink>
+            <NavLink to="/pipeline"          className={navCls}>Pipeline</NavLink>
+          </nav>
+        )}
+      </header>
+
+      {/* Page */}
+      <main className="flex-1 p-6">
+        <Routes>
+          <Route path="/"           element={<Home />} />
+          <Route path="/dashboard"  element={<Dashboard />} />
+          <Route path="/documents"  element={<Documents />} />
+          <Route path="/graph"      element={<Graph />} />
+          <Route path="/pipeline"   element={<Pipeline />} />
+        </Routes>
+      </main>
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen flex flex-col">
-        {/* Nav */}
-        <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
-          <span className="text-lg font-bold text-white tracking-tight">P2P CDC</span>
-          <nav className="flex gap-1">
-            <NavLink to="/"          end className={navCls}>Dashboard</NavLink>
-            <NavLink to="/documents"     className={navCls}>Documents</NavLink>
-            <NavLink to="/graph"         className={navCls}>Graph</NavLink>
-            <NavLink to="/pipeline"      className={navCls}>Pipeline</NavLink>
-          </nav>
-        </header>
-
-        {/* Page */}
-        <main className="flex-1 p-6">
-          <Routes>
-            <Route path="/"          element={<Dashboard />} />
-            <Route path="/documents" element={<Documents />} />
-            <Route path="/graph"     element={<Graph />} />
-            <Route path="/pipeline"  element={<Pipeline />} />
-          </Routes>
-        </main>
-      </div>
+      <Layout />
     </BrowserRouter>
   )
 }
