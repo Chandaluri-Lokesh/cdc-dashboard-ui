@@ -43,6 +43,11 @@ export const simulateUpdate = () =>
 export const fetchSimulatorStatus = () =>
   api.get('/simulate/status').then(r => r.data as { running: boolean })
 
+// ── Schema ────────────────────────────────────────────────────────────────────
+export const fetchMongoSchema     = () => api.get('/schema/mongodb').then(r => r.data)
+export const fetchPostgresSchema  = () => api.get('/schema/postgresql').then(r => r.data)
+export const fetchNeo4jSchema     = () => api.get('/schema/neo4j').then(r => r.data)
+
 export const startSimulator = () =>
   api.post('/simulate/start').then(r => r.data)
 
