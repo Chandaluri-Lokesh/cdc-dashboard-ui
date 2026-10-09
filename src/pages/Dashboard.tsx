@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
@@ -103,6 +104,7 @@ export default function Dashboard() {
     }
   }
 
+  const navigate = useNavigate()
   const lat = summary?.latency ?? {}
   const counts = summary?.table_counts ?? {}
 
@@ -229,8 +231,14 @@ export default function Dashboard() {
                   <td className="py-1.5 pr-4">
                     <OpBadge op={row.operation} />
                   </td>
-                  <td className="py-1.5 text-gray-400 font-mono text-xs pr-4 max-w-[180px] truncate">
-                    {row.doc_id}
+                  <td className="py-1.5 pr-4 max-w-[180px]">
+                    <button
+                      className="text-blue-400 hover:text-blue-300 font-mono text-xs truncate block max-w-full text-left underline-offset-2 hover:underline"
+                      title="View in Neo4j graph"
+                      onClick={() => navigate('/graph', { state: { collection: row.collection, docId: row.doc_id } })}
+                    >
+                      {row.doc_id}
+                    </button>
                   </td>
                   <td className="py-1.5 text-right pr-4 text-gray-400 font-mono text-xs">
                     {row.debezium_lat_ms} ms

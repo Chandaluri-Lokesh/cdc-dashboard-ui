@@ -17,8 +17,8 @@ export const fetchPipelineStatus = () =>
   api.get('/pipeline/status').then(r => r.data)
 
 // ── Graph ────────────────────────────────────────────────────────────────────
-export const fetchSubgraph = (collection: string, docId: string) =>
-  api.get(`/graph/${collection}/${encodeURIComponent(docId)}`).then(r => r.data)
+export const fetchSubgraph = (collection: string, docId: string, depth = 2) =>
+  api.get(`/graph/${collection}/${encodeURIComponent(docId)}`, { params: { depth } }).then(r => r.data)
 
 export const fetchGraphOverview = () =>
   api.get('/graph/stats/overview').then(r => r.data)

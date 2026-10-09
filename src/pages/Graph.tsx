@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import ForceGraph2D from 'react-force-graph-2d'
 import { fetchSubgraph, fetchGraphOverview } from '../lib/api'
 
@@ -28,8 +29,12 @@ const LABEL_COLORS: Record<string, string> = {
 }
 
 export default function Graph() {
-  const [collection, setCollection] = useState('purchase_orders')
-  const [docId, setDocId]           = useState('')
+  const location = useLocation()
+  const navState = location.state as { collection?: string; docId?: string } | null
+
+  const [collection, setCollection] = useState(navState?.collection ?? 'purchase_orders')
+  const [docId, setDocId]           = useState(navState?.docId ?? '')
+  const [depth, setDepth]           = useState(2)
   const [graphData, setGraphData]   = useState<GraphData | null>(null)
   const [overview, setOverview]     = useState<Overview | null>(null)
   const [selected, setSelected]     = useState<GraphData['nodes'][0] | null>(null)
@@ -41,13 +46,20 @@ export default function Graph() {
     fetchGraphOverview().then(setOverview).catch(() => {})
   }, [])
 
-  const handleSearch = async () => {
-    if (!docId.trim()) return
+  // Auto-search when navigated from the live feed with a doc pre-selected
+  useEffect(() => {
+    if (navState?.docId) {
+      handleSearch(navState.collection ?? 'purchase_orders', navState.docId, depth)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSearch = async (col = collection, id = docId, hops = depth) => {
+    if (!id.trim()) return
     setLoading(true)
     setError(null)
     setSelected(null)
     try {
-      const data = await fetchSubgraph(collection, docId.trim())
+      const data = await fetchSubgraph(col, id.trim(), hops)
       setGraphData(data)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Graph unavailable')
@@ -108,7 +120,7 @@ export default function Graph() {
       {/* Search */}
       <div className="card">
         <h2 className="text-sm text-gray-400 mb-3">Explore Subgraph</h2>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <select
             className="input-field w-48"
             value={collection}
@@ -119,13 +131,31 @@ export default function Graph() {
             ))}
           </select>
           <input
-            className="input-field flex-1"
+            className="input-field flex-1 min-w-[180px]"
             placeholder="Document ID e.g. PO-2026-05512"
             value={docId}
             onChange={e => setDocId(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
           />
-          <button className="btn-primary" onClick={handleSearch} disabled={loading}>
+          {/* Hop selector */}
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4].map(h => (
+              <button
+                key={h}
+                onClick={() => setDepth(h)}
+                className={`w-9 h-9 rounded text-sm font-medium transition-colors ${
+                  depth === h
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                }`}
+                title={`${h} hop${h > 1 ? 's' : ''}`}
+              >
+                {h}
+              </button>
+            ))}
+            <span className="text-xs text-gray-500 ml-1">hops</span>
+          </div>
+          <button className="btn-primary" onClick={() => handleSearch()} disabled={loading}>
             {loading ? 'Loading…' : 'Explore'}
           </button>
         </div>
