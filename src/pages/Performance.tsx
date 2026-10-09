@@ -34,13 +34,13 @@ const OP_LABELS: Record<string, string> = { c: 'Insert', u: 'Update', d: 'Delete
 
 // ── Scale projection table ────────────────────────────────────────────────────
 const SCALES = [
-  { label: '1 record',    count: 1 },
-  { label: '500 records', count: 500 },
-  { label: '1 K',         count: 1_000 },
-  { label: '10 K',        count: 10_000 },
-  { label: '100 K',       count: 100_000 },
-  { label: '500 K',       count: 500_000 },
-  { label: '1 M',         count: 1_000_000 },
+  { label: '1 record',           count: 1 },
+  { label: '500 records',        count: 500 },
+  { label: '1,000 records',      count: 1_000 },
+  { label: '10,000 records',     count: 10_000 },
+  { label: '100,000 records',    count: 100_000 },
+  { label: '500,000 records',    count: 500_000 },
+  { label: '1,000,000 records',  count: 1_000_000 },
 ]
 
 // ── Industry reference data ───────────────────────────────────────────────────
@@ -263,9 +263,9 @@ export default function Performance() {
                 <th className="py-2 text-left">Scale</th>
                 <th className="py-2 text-right">Records</th>
                 <th className="py-2 text-right">This System</th>
-                <th className="py-2 text-right">Small Prod<span className="normal-case font-normal text-gray-600"> (5K/s)</span></th>
-                <th className="py-2 text-right">Medium Prod<span className="normal-case font-normal text-gray-600"> (50K/s)</span></th>
-                <th className="py-2 text-right">Cloud<span className="normal-case font-normal text-gray-600"> (500K/s)</span></th>
+                <th className="py-2 text-right">Small Production<span className="normal-case font-normal text-gray-600"> (5,000/s)</span></th>
+                <th className="py-2 text-right">Medium Production<span className="normal-case font-normal text-gray-600"> (50,000/s)</span></th>
+                <th className="py-2 text-right">Cloud<span className="normal-case font-normal text-gray-600"> (500,000/s)</span></th>
               </tr>
             </thead>
             <tbody>
