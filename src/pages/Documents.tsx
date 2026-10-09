@@ -3,6 +3,24 @@ import { insertDocument, simulateChain, simulateUpdate } from '../lib/api'
 
 type DocType = 'rfq' | 'po' | 'asn' | 'grn' | 'invoice'
 
+// Mirror of schema_guard.py — required fields per collection
+const REQUIRED_FIELDS: Record<DocType, string[]> = {
+  rfq:     ['rfq_number', 'status'],
+  po:      ['po_number', 'vendor_id', 'status'],
+  asn:     ['asn_number', 'po_number', 'status'],
+  grn:     ['grn_number', 'po_number', 'status'],
+  invoice: ['invoice_number', 'po_number', 'status'],
+}
+
+// All known top-level fields per doc type (from schema_guard.py KNOWN_FIELDS)
+const KNOWN_FIELDS: Record<DocType, string[]> = {
+  rfq:     ['rfq_number', 'requested_date', 'requested_by', 'plant', 'status', 'response_due_date', 'invited_vendors', 'line_items'],
+  po:      ['po_number', 'rfq_number', 'vendor_id', 'vendor_name', 'order_date', 'delivery_date', 'plant', 'currency', 'status', 'payment_terms', 'order_total', 'line_items'],
+  asn:     ['asn_number', 'po_number', 'vendor_id', 'ship_date', 'carrier', 'tracking_number', 'expected_arrival', 'status', 'line_items'],
+  grn:     ['grn_number', 'po_number', 'asn_number', 'receipt_date', 'received_by', 'plant', 'status', 'line_items'],
+  invoice: ['invoice_number', 'po_number', 'grn_number', 'vendor_id', 'invoice_date', 'due_date', 'currency', 'status', 'subtotal', 'tax_rate', 'tax_amount', 'total_amount', 'line_items'],
+}
+
 const TEMPLATES: Record<DocType, Record<string, string | number | unknown[]>> = {
   rfq: {
     rfq_number: 'RFQ-2026-XXXXX',
@@ -79,10 +97,14 @@ const TEMPLATES: Record<DocType, Record<string, string | number | unknown[]>> = 
 }
 
 export default function Documents() {
-  const [docType, setDocType]     = useState<DocType>('po')
-  const [jsonText, setJsonText]   = useState(() => JSON.stringify(TEMPLATES['po'], null, 2))
-  const [status, setStatus]       = useState<string | null>(null)
-  const [error, setError]         = useState<string | null>(null)
+  const [docType, setDocType]         = useState<DocType>('po')
+  const [jsonText, setJsonText]       = useState(() => JSON.stringify(TEMPLATES['po'], null, 2))
+  const [status, setStatus]           = useState<string | null>(null)
+  const [error, setError]             = useState<string | null>(null)
+  const [jsonError, setJsonError]     = useState<string | null>(null)
+  const [jsonValid, setJsonValid]     = useState(false)
+  const [showRef, setShowRef]         = useState(false)
+  const [copied, setCopied]           = useState<string | null>(null)
   const [chainResult, setChainResult] = useState<Record<string, string> | null>(null)
 
   const handleTypeChange = (t: DocType) => {
@@ -90,18 +112,47 @@ export default function Documents() {
     setJsonText(JSON.stringify(TEMPLATES[t], null, 2))
     setStatus(null)
     setError(null)
+    setJsonError(null)
+    setJsonValid(false)
+  }
+
+  const validateJson = (): Record<string, unknown> | null => {
+    setJsonError(null)
+    setJsonValid(false)
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (e: unknown) {
+      setJsonError(e instanceof Error ? e.message : 'Invalid JSON')
+      return null
+    }
+    const missing = REQUIRED_FIELDS[docType].filter(f => parsed[f] == null)
+    if (missing.length > 0) {
+      setJsonError(`Missing required fields: ${missing.join(', ')}`)
+      return null
+    }
+    setJsonValid(true)
+    return parsed
   }
 
   const handleInsert = async () => {
     setStatus(null)
     setError(null)
+    const parsed = validateJson()
+    if (!parsed) return
     try {
-      const fields = JSON.parse(jsonText)
-      const result = await insertDocument(docType, fields)
+      const result = await insertDocument(docType, parsed)
       setStatus(`Inserted ${result._id} into ${result.collection}`)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     }
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(text)
+      setTimeout(() => setCopied(null), 1500)
+    })
   }
 
   const handleSimulateChain = async () => {
@@ -142,15 +193,24 @@ export default function Documents() {
           </button>
         </div>
         {chainResult && (
-          <div className="mt-3 p-3 bg-green-950 border border-green-800 rounded-lg text-sm space-y-1">
-            <p className="text-green-300 font-medium">Chain inserted successfully</p>
+          <div className="mt-3 p-3 bg-green-950 border border-green-800 rounded-lg text-sm space-y-1.5">
+            <p className="text-green-300 font-medium">Chain inserted — click any ID to copy</p>
             {Object.entries(chainResult)
               .filter(([k]) => k.endsWith('_id'))
               .map(([k, v]) => (
-                <p key={k} className="text-gray-300">
-                  <span className="text-gray-500">{k}:</span>{' '}
-                  <span className="font-mono">{v as string}</span>
-                </p>
+                <div key={k} className="flex items-center gap-2">
+                  <span className="text-gray-500 w-20 shrink-0">{k}:</span>
+                  <button
+                    className="font-mono text-blue-300 hover:text-blue-200 hover:underline text-left"
+                    onClick={() => copyToClipboard(v as string)}
+                    title="Click to copy"
+                  >
+                    {v as string}
+                  </button>
+                  {copied === v && (
+                    <span className="text-green-400 text-xs">Copied!</span>
+                  )}
+                </div>
               ))}
           </div>
         )}
@@ -160,6 +220,7 @@ export default function Documents() {
       <div className="card">
         <h2 className="text-sm font-medium text-gray-400 mb-3">Manual Document Insert</h2>
 
+        {/* Doc type tabs */}
         <div className="flex gap-2 mb-4">
           {(['rfq', 'po', 'asn', 'grn', 'invoice'] as DocType[]).map(t => (
             <button
@@ -176,31 +237,68 @@ export default function Documents() {
           ))}
         </div>
 
-        <textarea
-          className="input-field font-mono text-xs h-72 resize-none"
-          value={jsonText}
-          onChange={e => setJsonText(e.target.value)}
-          spellCheck={false}
-        />
+        <div className="flex gap-4">
+          {/* JSON editor */}
+          <div className="flex-1 min-w-0">
+            <textarea
+              className={`input-field font-mono text-xs h-72 resize-none w-full ${
+                jsonError ? 'border-red-500' : jsonValid ? 'border-green-600' : ''
+              }`}
+              value={jsonText}
+              onChange={e => { setJsonText(e.target.value); setJsonError(null); setJsonValid(false) }}
+              spellCheck={false}
+            />
+            {jsonError && (
+              <p className="mt-1 text-red-400 text-xs font-mono">{jsonError}</p>
+            )}
+            {jsonValid && !jsonError && (
+              <p className="mt-1 text-green-400 text-xs">JSON is valid ✓</p>
+            )}
+          </div>
+
+          {/* Field reference panel */}
+          <div className="w-56 shrink-0">
+            <button
+              className="w-full flex justify-between items-center text-xs text-gray-400 hover:text-white mb-2"
+              onClick={() => setShowRef(r => !r)}
+            >
+              <span className="font-medium uppercase tracking-wide">Field Reference</span>
+              <span>{showRef ? '▲' : '▼'}</span>
+            </button>
+            {showRef && (
+              <div className="space-y-1 text-xs max-h-64 overflow-y-auto pr-1">
+                {KNOWN_FIELDS[docType].map(f => {
+                  const isRequired = REQUIRED_FIELDS[docType].includes(f)
+                  return (
+                    <div key={f} className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isRequired ? 'bg-red-400' : 'bg-gray-600'}`} />
+                      <span className={`font-mono ${isRequired ? 'text-gray-200' : 'text-gray-500'}`}>{f}</span>
+                      {isRequired && <span className="text-red-400 text-[10px]">req</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="flex items-center gap-3 mt-3">
           <button className="btn-primary" onClick={handleInsert}>
             Insert into MongoDB
           </button>
+          <button className="btn-secondary text-sm" onClick={validateJson}>
+            Validate JSON
+          </button>
           <button
             className="btn-secondary text-sm"
-            onClick={() => setJsonText(JSON.stringify(TEMPLATES[docType], null, 2))}
+            onClick={() => { setJsonText(JSON.stringify(TEMPLATES[docType], null, 2)); setJsonError(null); setJsonValid(false) }}
           >
             Reset Template
           </button>
         </div>
 
-        {status && (
-          <p className="mt-3 text-green-400 text-sm">{status}</p>
-        )}
-        {error && (
-          <p className="mt-3 text-red-400 text-sm">{error}</p>
-        )}
+        {status && <p className="mt-3 text-green-400 text-sm">{status}</p>}
+        {error  && <p className="mt-3 text-red-400 text-sm">{error}</p>}
       </div>
 
       <div className="card text-sm text-gray-400 space-y-1">
