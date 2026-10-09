@@ -81,7 +81,7 @@ export default function Home() {
       {/* Hero */}
       <section className="text-center space-y-5 pt-6">
         <div className="inline-block px-3 py-1 rounded-full border border-blue-800 text-blue-400 text-xs font-medium tracking-widest uppercase">
-          Minor Project — Database Management
+          Proof of Concept
         </div>
         <h1 className="text-4xl font-bold text-white leading-tight">
           P2P Change-Data-Capture<br />
@@ -209,7 +209,7 @@ export default function Home() {
       </section>
 
       <div className="border-t border-gray-800 pt-4 pb-2 text-center text-xs text-gray-600">
-        P2P CDC POC &mdash; Minor Project
+        P2P Change-Data-Capture &mdash; Proof of Concept
       </div>
     </div>
   )
