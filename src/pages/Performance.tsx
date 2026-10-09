@@ -252,10 +252,17 @@ export default function Performance() {
       {/* Scale projection */}
       <div className="card">
         <h2 className="text-sm font-medium text-gray-400 mb-1">Projected Ingestion Time at Scale</h2>
-        <p className="text-xs text-gray-500 mb-4">
-          Based on {rps != null ? `measured throughput of ${rps} events/s` : 'throughput — run more events to measure'}.
-          {rps == null && ' Projections shown use conservative local estimates.'}
-        </p>
+        <div className="text-xs text-gray-500 mb-4 space-y-1">
+          <p>
+            Based on {rps != null ? `measured throughput of ${rps} events/s` : 'throughput — run more events to measure'}.
+            {rps == null && ' Projections shown use a conservative local estimate of 200 events/s.'}
+          </p>
+          <p className="text-gray-600">
+            <span className="text-gray-400 font-medium">Note: </span>
+            The latency figures above (p50 / p95 / p99) are <span className="text-white">per individual record</span> — time from a single write in MongoDB until it lands in Postgres and Neo4j.
+            The times in this table are <span className="text-white">total wall-clock ingestion time</span> for N records at sustained throughput, i.e. <span className="font-mono">records ÷ events/s</span>.
+          </p>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -325,7 +332,8 @@ export default function Performance() {
 
       {/* Latency breakdown reference */}
       <div className="card">
-        <h2 className="text-sm font-medium text-gray-400 mb-3">E2E Latency Breakdown — This System</h2>
+        <h2 className="text-sm font-medium text-gray-400 mb-1">E2E Latency Breakdown — This System</h2>
+        <p className="text-xs text-gray-600 mb-3">All values are <span className="text-gray-400">per-record latency</span> in milliseconds — measured from the moment a document is written to MongoDB until it is stored in both Postgres and Neo4j.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
