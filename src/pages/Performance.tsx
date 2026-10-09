@@ -30,7 +30,7 @@ function fmtDuration(seconds: number): string {
   return `${(seconds / 3600).toFixed(1)} hr`
 }
 
-const OP_LABELS: Record<string, string> = { c: 'Insert', u: 'Update', d: 'Delete' }
+const OP_LABELS: Record<string, string> = { c: 'Insert', u: 'Update', d: 'Delete', r: 'Snapshot Read' }
 
 // ── Scale projection table ────────────────────────────────────────────────────
 const SCALES = [
@@ -232,7 +232,7 @@ export default function Performance() {
                     {data.by_operation.map(r => (
                       <tr key={r.operation} className="border-b border-gray-800/50">
                         <td className="py-2">
-                          <span className={`badge ${r.operation === 'c' ? 'badge-green' : r.operation === 'u' ? 'badge-yellow' : 'badge-red'}`}>
+                          <span className={`badge ${r.operation === 'c' ? 'badge-green' : r.operation === 'u' ? 'badge-yellow' : r.operation === 'd' ? 'badge-red' : 'badge-gray'}`}>
                             {OP_LABELS[r.operation] ?? r.operation}
                           </span>
                         </td>
