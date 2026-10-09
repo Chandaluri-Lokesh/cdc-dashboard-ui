@@ -1,4 +1,4 @@
-import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import Home       from './pages/Home'
 import Dashboard  from './pages/Dashboard'
 import Documents  from './pages/Documents'
@@ -13,9 +13,6 @@ const navCls = ({ isActive }: { isActive: boolean }) =>
   }`
 
 function Layout() {
-  const location = useLocation()
-  const isHome = location.pathname === '/'
-
   return (
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
@@ -23,14 +20,13 @@ function Layout() {
         <NavLink to="/" className="text-lg font-bold text-white tracking-tight hover:text-blue-300 transition-colors">
           P2P CDC
         </NavLink>
-        {!isHome && (
-          <nav className="flex gap-1">
-            <NavLink to="/dashboard"     end className={navCls}>Dashboard</NavLink>
-            <NavLink to="/documents"         className={navCls}>Documents</NavLink>
-            <NavLink to="/graph"             className={navCls}>Graph</NavLink>
-            <NavLink to="/pipeline"          className={navCls}>Pipeline</NavLink>
-          </nav>
-        )}
+        <nav className="flex gap-1">
+          <NavLink to="/"          end className={navCls}>Home</NavLink>
+          <NavLink to="/dashboard"     className={navCls}>Dashboard</NavLink>
+          <NavLink to="/documents"     className={navCls}>Documents</NavLink>
+          <NavLink to="/graph"         className={navCls}>Graph</NavLink>
+          <NavLink to="/pipeline"      className={navCls}>Pipeline</NavLink>
+        </nav>
       </header>
 
       {/* Page */}
