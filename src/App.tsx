@@ -4,7 +4,8 @@ import Dashboard  from './pages/Dashboard'
 import Documents  from './pages/Documents'
 import Graph      from './pages/Graph'
 import Pipeline   from './pages/Pipeline'
-import Schema     from './pages/Schema'
+import Schema      from './pages/Schema'
+import Performance from './pages/Performance'
 
 const navCls = ({ isActive }: { isActive: boolean }) =>
   `px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -28,6 +29,7 @@ function Layout() {
           <NavLink to="/graph"         className={navCls}>Graph</NavLink>
           <NavLink to="/pipeline"      className={navCls}>Pipeline</NavLink>
           <NavLink to="/schema"        className={navCls}>Schema</NavLink>
+          <NavLink to="/performance"   className={navCls}>Performance</NavLink>
         </nav>
       </header>
 
@@ -39,7 +41,8 @@ function Layout() {
           <Route path="/documents"  element={<Documents />} />
           <Route path="/graph"      element={<Graph />} />
           <Route path="/pipeline"   element={<Pipeline />} />
-          <Route path="/schema"     element={<Schema />} />
+          <Route path="/schema"       element={<Schema />} />
+          <Route path="/performance"  element={<Performance />} />
         </Routes>
       </main>
     </div>

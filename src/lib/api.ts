@@ -9,6 +9,9 @@ export const fetchMetricsSummary = () =>
 export const fetchMetricsRecent = (limit = 50) =>
   api.get('/metrics/recent', { params: { limit } }).then(r => r.data)
 
+export const fetchBenchmarks = () =>
+  api.get('/metrics/benchmarks').then(r => r.data)
+
 export const fetchEventsByCollection = () =>
   api.get('/metrics/collections').then(r => r.data)
 
