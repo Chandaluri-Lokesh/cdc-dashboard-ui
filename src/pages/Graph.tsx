@@ -138,83 +138,78 @@ export default function Graph() {
         </div>
       )}
 
-      {/* Search + doc list */}
-      <div className="flex gap-4 items-start">
-
-        {/* Search controls */}
-        <div className="flex-1 min-w-0 card">
-          <h2 className="text-sm text-gray-400 mb-3">Explore Subgraph</h2>
-          <div className="flex gap-3 flex-wrap">
-            <select
-              className="input-field w-48"
-              value={collection}
-              onChange={e => setCollection(e.target.value)}
-            >
-              {Object.keys(COLLECTION_MAP).map(c => (
-                <option key={c} value={c}>{c.replace('_', ' ')}</option>
-              ))}
-            </select>
-            <input
-              className="input-field flex-1 min-w-[180px]"
-              placeholder="Document ID e.g. PO-2026-05512"
-              value={docId}
-              onChange={e => setDocId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            />
-            {/* Hop selector */}
-            <div className="flex items-center gap-1">
-              {[1, 2, 3, 4].map(h => (
-                <button
-                  key={h}
-                  onClick={() => setDepth(h)}
-                  className={`w-9 h-9 rounded text-sm font-medium transition-colors ${
-                    depth === h
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
-                  }`}
-                  title={`${h} hop${h > 1 ? 's' : ''}`}
-                >
-                  {h}
-                </button>
-              ))}
-              <span className="text-xs text-gray-500 ml-1">hops</span>
-            </div>
-            <button className="btn-primary" onClick={() => handleSearch()} disabled={loading}>
-              {loading ? 'Loading…' : 'Explore'}
-            </button>
+      {/* Search controls */}
+      <div className="card">
+        <h2 className="text-sm text-gray-400 mb-3">Explore Subgraph</h2>
+        <div className="flex gap-3 flex-wrap">
+          <select
+            className="input-field w-48"
+            value={collection}
+            onChange={e => setCollection(e.target.value)}
+          >
+            {Object.keys(COLLECTION_MAP).map(c => (
+              <option key={c} value={c}>{c.replace('_', ' ')}</option>
+            ))}
+          </select>
+          <input
+            className="input-field flex-1 min-w-[180px]"
+            placeholder="Document ID e.g. PO-2026-05512"
+            value={docId}
+            onChange={e => setDocId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+          />
+          {/* Hop selector */}
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4].map(h => (
+              <button
+                key={h}
+                onClick={() => setDepth(h)}
+                className={`w-9 h-9 rounded text-sm font-medium transition-colors ${
+                  depth === h
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                }`}
+                title={`${h} hop${h > 1 ? 's' : ''}`}
+              >
+                {h}
+              </button>
+            ))}
+            <span className="text-xs text-gray-500 ml-1">hops</span>
           </div>
-          {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+          <button className="btn-primary" onClick={() => handleSearch()} disabled={loading}>
+            {loading ? 'Loading…' : 'Explore'}
+          </button>
         </div>
+        {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
 
-        {/* Doc list for selected collection */}
-        <div className="w-64 shrink-0 card">
+        {/* Doc list — full width below controls */}
+        <div className="mt-4 pt-4 border-t border-gray-800">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm text-gray-400">
-              {collection.replace('_', ' ')}
-            </h2>
-            <button className="text-xs text-gray-500 hover:text-gray-300" onClick={() => loadDocList(collection)}>↻</button>
+            <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              {collection.replace(/_/g, ' ')} — click to explore
+            </h3>
+            <button className="text-xs text-gray-500 hover:text-gray-300" onClick={() => loadDocList(collection)}>↻ Refresh</button>
           </div>
           {listLoading ? (
             <p className="text-xs text-gray-500">Loading…</p>
           ) : docList.length === 0 ? (
             <p className="text-xs text-gray-500">No documents found.</p>
           ) : (
-            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5 max-h-48 overflow-y-auto">
               {docList.map(d => (
                 <button
                   key={d.id}
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-800 group flex items-center justify-between gap-2"
+                  className="text-left px-2.5 py-2 rounded-lg bg-gray-800/60 hover:bg-gray-700 group flex flex-col gap-0.5 transition-colors"
                   onClick={() => { setDocId(d.key); handleSearch(collection, d.key, depth) }}
                   title={`Explore ${d.key}`}
                 >
-                  <span className="font-mono text-xs text-blue-400 group-hover:text-blue-300 truncate">{d.key}</span>
-                  {d.status && <span className="text-xs text-gray-500 shrink-0">{d.status.replace(/_/g, ' ')}</span>}
+                  <span className="font-mono text-xs text-blue-400 group-hover:text-blue-300 truncate block">{d.key}</span>
+                  {d.status && <span className="text-xs text-gray-500 truncate block">{d.status.replace(/_/g, ' ')}</span>}
                 </button>
               ))}
             </div>
           )}
         </div>
-
       </div>
 
       {/* Graph canvas + node inspector */}
