@@ -17,7 +17,35 @@ type Neo4jRelationship = { type: string; count: number; from_label: string | nul
 type Neo4jConstraint   = { name: string; type: string; entity: string[]; properties: string[] }
 type Neo4jSchema       = { labels: Neo4jLabel[]; relationships: Neo4jRelationship[]; constraints: Neo4jConstraint[] }
 
-// ── Shared sample queries ─────────────────────────────────────────────────────
+// ── Application CRUD queries (actual queries used by the pipeline) ─────────────
+const MONGO_CRUD = [
+  {
+    label: 'INSERT / UPSERT document',
+    desc:  'Used by documents.py when a user submits a form. replace_one with upsert=True triggers a Debezium CDC event.',
+    code:  `db["purchase_orders"].replace_one(\n  { "_id": doc["_id"] },\n  doc,\n  upsert=True\n)`,
+  },
+  {
+    label: 'DELETE document',
+    desc:  'Used by DELETE /api/documents/{doc_type}/{doc_id}. Triggers a CDC delete event → Kafka → consumer → Postgres cascade delete + Neo4j DETACH DELETE.',
+    code:  `db["purchase_orders"].delete_one({ "_id": "PO-2026-XXXXX" })`,
+  },
+  {
+    label: 'READ one document',
+    desc:  'Used by schema.py to infer field types from a sample document.',
+    code:  `db["purchase_orders"].find_one({})`,
+  },
+  {
+    label: 'LIST documents (paginated)',
+    desc:  'Used by GET /api/documents/{doc_type} to populate the document list panels in the UI.',
+    code:  `db["purchase_orders"].find(\n  {},\n  { "po_number": 1, "status": 1, "updated_at": 1 }\n).sort("updated_at", -1).limit(100)`,
+  },
+  {
+    label: 'COUNT documents',
+    desc:  'Used by schema.py to show per-collection document counts.',
+    code:  `db["purchase_orders"].count_documents({})`,
+  },
+]
+
 const MONGO_QUERIES = [
   { label: 'All Purchase Orders', code: `db.purchase_orders.find({}).pretty()` },
   { label: 'Open POs', code: `db.purchase_orders.find({ status: "OPEN" })` },
@@ -26,33 +54,127 @@ const MONGO_QUERIES = [
   { label: 'Count by collection', code: `db.getCollectionNames().forEach(c => print(c, db[c].countDocuments({})))` },
 ]
 
+const PG_CRUD = [
+  {
+    label: 'UPSERT — INSERT … ON CONFLICT DO UPDATE',
+    desc:  'Core write in pg_writer.upsert_table(). Used for every CDC insert/update event. Columns and conflict keys are driven by YAML mapping rules.',
+    code:  `INSERT INTO purchase_orders (po_number, rfq_number, vendor_id, status, order_date, …)\nVALUES ($1, $2, $3, $4, $5, …)\nON CONFLICT (po_number)\nDO UPDATE SET\n  rfq_number = EXCLUDED.rfq_number,\n  vendor_id  = EXCLUDED.vendor_id,\n  status     = EXCLUDED.status,\n  order_date = EXCLUDED.order_date`,
+  },
+  {
+    label: 'UPSERT — INSERT … ON CONFLICT DO NOTHING',
+    desc:  'Used when all columns are part of the upsert key (e.g. junction/mapping tables with no updatable columns).',
+    code:  `INSERT INTO po_line_items (po_number, line_no, material_code, quantity, unit_price, line_total)\nVALUES ($1, $2, $3, $4, $5, $6)\nON CONFLICT (po_number, line_no) DO NOTHING`,
+  },
+  {
+    label: 'DELETE CASCADE',
+    desc:  'Used by pg_writer.delete_cascade() on CDC delete events. Child rows (line items) are removed automatically by FK ON DELETE CASCADE constraints.',
+    code:  `DELETE FROM purchase_orders\nWHERE "po_number" = $1\nRETURNING "po_number"`,
+  },
+  {
+    label: 'INSERT pipeline metric',
+    desc:  'Written by pg_writer.write_metric() for every processed CDC event to track per-stage latency.',
+    code:  `INSERT INTO cdc_pipeline_metrics (\n  doc_id, collection, operation, doc_size_bytes,\n  mongo_ts_ms, kafka_ts_ms, consumer_recv_ms, pg_stored_ms,\n  debezium_lat_ms, consumer_lat_ms, write_lat_ms, e2e_lat_ms\n) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+  },
+  {
+    label: 'CREATE metrics table',
+    desc:  'Run once at startup by pg_writer.ensure_metrics_table().',
+    code:  `CREATE TABLE IF NOT EXISTS cdc_pipeline_metrics (\n  id               SERIAL PRIMARY KEY,\n  doc_id           TEXT,\n  collection       TEXT,\n  operation        TEXT,\n  doc_size_bytes   INT,\n  mongo_ts_ms      BIGINT,\n  kafka_ts_ms      BIGINT,\n  consumer_recv_ms BIGINT,\n  pg_stored_ms     BIGINT,\n  debezium_lat_ms  INT,\n  consumer_lat_ms  INT,\n  write_lat_ms     INT,\n  e2e_lat_ms       INT,\n  recorded_at      TIMESTAMPTZ DEFAULT now()\n)`,
+  },
+  {
+    label: 'Latency summary (Dashboard)',
+    desc:  'Used by GET /api/metrics/summary — powers the stat cards on the Dashboard page.',
+    code:  `SELECT\n  COUNT(*)                           AS total_events,\n  AVG(e2e_lat_ms)::NUMERIC(10,1)     AS avg_e2e_ms,\n  PERCENTILE_CONT(0.95) WITHIN GROUP\n    (ORDER BY e2e_lat_ms)            AS p95_e2e_ms,\n  MAX(e2e_lat_ms)                    AS max_e2e_ms,\n  AVG(debezium_lat_ms)::NUMERIC(10,1) AS avg_debezium_ms,\n  AVG(write_lat_ms)::NUMERIC(10,1)   AS avg_write_ms,\n  COUNT(*) FILTER (WHERE operation = 'c') AS inserts,\n  COUNT(*) FILTER (WHERE operation = 'u') AS updates,\n  COUNT(*) FILTER (WHERE operation = 'd') AS deletes\nFROM cdc_pipeline_metrics\nWHERE recorded_at > now() - INTERVAL '10 minutes'`,
+  },
+  {
+    label: 'WebSocket live feed poll',
+    desc:  'Polled every 2 s by the WebSocket endpoint to push new metric rows to the Dashboard live feed.',
+    code:  `SELECT id, doc_id, collection, operation, e2e_lat_ms,\n       debezium_lat_ms, consumer_lat_ms, write_lat_ms, recorded_at\nFROM cdc_pipeline_metrics\nWHERE id > $1\nORDER BY id ASC\nLIMIT 50`,
+  },
+  {
+    label: 'Events by collection (last 1 hr)',
+    desc:  'Used by GET /api/metrics/collections — powers the bar chart on the Dashboard.',
+    code:  `SELECT collection,\n       COUNT(*) AS events,\n       AVG(e2e_lat_ms)::NUMERIC(10,1) AS avg_e2e_ms\nFROM cdc_pipeline_metrics\nWHERE recorded_at > now() - INTERVAL '1 hour'\nGROUP BY collection\nORDER BY events DESC`,
+  },
+]
+
 const PG_QUERIES = [
   { label: 'All Purchase Orders', code: `SELECT * FROM purchase_orders ORDER BY order_date DESC;` },
   { label: 'PO + line items', code: `SELECT po.*, li.*\nFROM purchase_orders po\nJOIN po_line_items li ON li.po_number = po.po_number\nWHERE po.po_number = 'PO-2026-XXXXX';` },
   { label: 'Invoice totals by vendor', code: `SELECT vendor_id, COUNT(*) AS invoices, SUM(total_amount) AS total\nFROM invoices\nGROUP BY vendor_id\nORDER BY total DESC;` },
-  { label: 'End-to-end latency avg', code: `SELECT collection, ROUND(AVG(e2e_lat_ms)) AS avg_e2e_ms\nFROM cdc_metrics\nGROUP BY collection\nORDER BY avg_e2e_ms DESC;` },
-  { label: 'Full P2P chain for a PO', code: `SELECT 'RFQ' AS doc, rfq_number AS id FROM rfqs WHERE rfq_number IN (SELECT rfq_number FROM purchase_orders WHERE po_number = 'PO-2026-XXXXX')\nUNION ALL\nSELECT 'PO', po_number FROM purchase_orders WHERE po_number = 'PO-2026-XXXXX'\nUNION ALL\nSELECT 'ASN', asn_number FROM asns WHERE po_number = 'PO-2026-XXXXX'\nUNION ALL\nSELECT 'GRN', grn_number FROM grns WHERE po_number = 'PO-2026-XXXXX'\nUNION ALL\nSELECT 'INV', invoice_number FROM invoices WHERE po_number = 'PO-2026-XXXXX';` },
+  { label: 'Full P2P chain for a PO', code: `SELECT 'RFQ' AS doc, rfq_number AS id FROM rfqs WHERE rfq_number IN (SELECT rfq_number FROM purchase_orders WHERE po_number = 'PO-2026-XXXXX')\nUNION ALL SELECT 'PO', po_number FROM purchase_orders WHERE po_number = 'PO-2026-XXXXX'\nUNION ALL SELECT 'ASN', asn_number FROM asns WHERE po_number = 'PO-2026-XXXXX'\nUNION ALL SELECT 'GRN', grn_number FROM grns WHERE po_number = 'PO-2026-XXXXX'\nUNION ALL SELECT 'INV', invoice_number FROM invoices WHERE po_number = 'PO-2026-XXXXX';` },
+]
+
+const NEO4J_CRUD = [
+  {
+    label: 'MERGE node (upsert)',
+    desc:  'Used for every CDC insert/update. Creates or updates a node. Driven by merge_cypher in each YAML mapping file.',
+    code:  `MERGE (p:PurchaseOrder {po_number: $po_number})\nSET p.vendor_id     = $vendor_id,\n    p.status        = $status,\n    p.order_date    = $order_date,\n    p.delivery_date = $delivery_date,\n    p.currency      = $currency`,
+  },
+  {
+    label: 'MERGE relationship',
+    desc:  'Creates a relationship between two nodes. Uses MERGE on the target node to handle out-of-order inserts (stub nodes are enriched when the actual document arrives).',
+    code:  `MATCH (p:PurchaseOrder {po_number: $po_number})\nMERGE (r:RFQ {rfq_number: $rfq_number})\nMERGE (p)-[:ISSUED_AGAINST]->(r)`,
+  },
+  {
+    label: 'MERGE relationship with properties',
+    desc:  'Used for array line-item relationships (e.g. PO → Material). Sets quantity and price on the relationship itself.',
+    code:  `MATCH (p:PurchaseOrder {po_number: $po_number})\nMERGE (m:Material {material_code: $material_code})\nMERGE (p)-[r:ORDERS]->(m)\nSET r.quantity   = $quantity,\n    r.unit_price = $unit_price,\n    r.line_total = $line_total`,
+  },
+  {
+    label: 'DETACH DELETE node',
+    desc:  'Used on CDC delete events. Removes the node and all its relationships.',
+    code:  `MATCH (p:PurchaseOrder {po_number: $po_number})\nDETACH DELETE p`,
+  },
+  {
+    label: 'CREATE CONSTRAINT (startup)',
+    desc:  'Run once at consumer startup via neo4j_writer.apply_constraints(). Ensures uniqueness on all P2P node key fields.',
+    code:  `CREATE CONSTRAINT rfq_unique      IF NOT EXISTS FOR (r:RFQ)           REQUIRE r.rfq_number      IS UNIQUE;\nCREATE CONSTRAINT po_unique       IF NOT EXISTS FOR (p:PurchaseOrder)  REQUIRE p.po_number       IS UNIQUE;\nCREATE CONSTRAINT asn_unique      IF NOT EXISTS FOR (a:ASN)            REQUIRE a.asn_number      IS UNIQUE;\nCREATE CONSTRAINT grn_unique      IF NOT EXISTS FOR (g:GRN)            REQUIRE g.grn_number      IS UNIQUE;\nCREATE CONSTRAINT invoice_unique  IF NOT EXISTS FOR (i:Invoice)        REQUIRE i.invoice_number  IS UNIQUE;\nCREATE CONSTRAINT vendor_unique   IF NOT EXISTS FOR (v:Vendor)         REQUIRE v.vendor_id       IS UNIQUE;\nCREATE CONSTRAINT material_unique IF NOT EXISTS FOR (m:Material)       REQUIRE m.material_code   IS UNIQUE;`,
+  },
+  {
+    label: 'Graph overview — node counts',
+    desc:  'Used by GET /api/graph/stats/overview to power the Graph page stat panel.',
+    code:  `CALL () {\n  MATCH (n) RETURN labels(n)[0] AS label, COUNT(*) AS count\n}\nRETURN label, count\nORDER BY count DESC`,
+  },
+  {
+    label: 'Subgraph traversal',
+    desc:  'Used by GET /api/graph/{collection}/{doc_id}?depth=N to render the force-directed graph.',
+    code:  `MATCH path = (start {po_number: $doc_id})-[*1..2]-()\nRETURN path`,
+  },
 ]
 
 const NEO4J_QUERIES = [
-  { label: 'Full P2P chain from a PO', code: `MATCH path = (r:RFQ)-[:GENERATES]->(po:PurchaseOrder {po_number: 'PO-2026-XXXXX'})\n      -[:FULFILLED_BY*0..1]->(a:ASN)\n      -[:RECEIVED_BY*0..1]->(g:GRN)\n      -[:BILLED_BY*0..1]->(i:Invoice)\nRETURN path` },
   { label: 'All relationships for a doc', code: `MATCH (n {po_number: 'PO-2026-XXXXX'})-[r]-(m)\nRETURN n, r, m` },
   { label: 'Materials on a PO', code: `MATCH (po:PurchaseOrder {po_number: 'PO-2026-XXXXX'})-[:ORDERS]->(m:Material)\nRETURN m.material_code, m` },
-  { label: 'Vendor invoice total', code: `MATCH (v:Vendor)<-[:ISSUED_TO]-(i:Invoice)\nRETURN v.vendor_id, COUNT(i) AS invoices, SUM(i.total_amount) AS total\nORDER BY total DESC` },
+  { label: 'Vendor invoice total', code: `MATCH (i:Invoice)-[:BILLS]->(po:PurchaseOrder)\nRETURN po.vendor_id, COUNT(i) AS invoices, SUM(i.total_amount) AS total\nORDER BY total DESC` },
   { label: 'Node count by label', code: `MATCH (n)\nRETURN labels(n)[0] AS label, COUNT(n) AS count\nORDER BY count DESC` },
   { label: 'Shortest path between two docs', code: `MATCH p = shortestPath(\n  (a {rfq_number: 'RFQ-2026-XXXXX'})-[*]-(b {invoice_number: 'INV-2026-XXXXX'})\n)\nRETURN p` },
 ]
 
-// ── Reusable copy button ──────────────────────────────────────────────────────
+// ── Reusable components ───────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
-      className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+      className="text-xs text-gray-500 hover:text-gray-300 transition-colors shrink-0"
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
     >
       {copied ? '✓ Copied' : 'Copy'}
     </button>
+  )
+}
+
+type QueryEntry = { label: string; code: string; desc?: string }
+
+function QueryBlock({ q, color }: { q: QueryEntry; color: string }) {
+  return (
+    <div className="bg-gray-900 rounded-lg p-3 border border-gray-800">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <span className="text-xs text-gray-300 font-medium">{q.label}</span>
+        <CopyButton text={q.code} />
+      </div>
+      {q.desc && <p className="text-xs text-gray-500 mb-2 leading-relaxed">{q.desc}</p>}
+      <pre className={`text-xs font-mono whitespace-pre-wrap ${color}`}>{q.code}</pre>
+    </div>
   )
 }
 
@@ -122,19 +244,19 @@ function MongoTab() {
         </div>
       </div>
 
-      {/* Sample queries */}
+      {/* Application CRUD */}
       <div className="card">
-        <h2 className="text-sm font-medium text-gray-400 mb-3">Sample Queries (mongosh)</h2>
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Application CRUD Operations</h2>
         <div className="space-y-3">
-          {MONGO_QUERIES.map(q => (
-            <div key={q.label} className="bg-gray-900 rounded-lg p-3 border border-gray-800">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-gray-400 font-medium">{q.label}</span>
-                <CopyButton text={q.code} />
-              </div>
-              <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{q.code}</pre>
-            </div>
-          ))}
+          {MONGO_CRUD.map(q => <QueryBlock key={q.label} q={q} color="text-green-300" />)}
+        </div>
+      </div>
+
+      {/* Exploration queries */}
+      <div className="card">
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Exploration Queries (mongosh)</h2>
+        <div className="space-y-3">
+          {MONGO_QUERIES.map(q => <QueryBlock key={q.label} q={q} color="text-green-300" />)}
         </div>
       </div>
     </div>
@@ -215,19 +337,19 @@ function PostgresTab() {
         </div>
       </div>
 
-      {/* Sample queries */}
+      {/* Application CRUD */}
       <div className="card">
-        <h2 className="text-sm font-medium text-gray-400 mb-3">Sample Queries (SQL)</h2>
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Application CRUD Operations</h2>
         <div className="space-y-3">
-          {PG_QUERIES.map(q => (
-            <div key={q.label} className="bg-gray-900 rounded-lg p-3 border border-gray-800">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-gray-400 font-medium">{q.label}</span>
-                <CopyButton text={q.code} />
-              </div>
-              <pre className="text-xs text-sky-300 font-mono whitespace-pre-wrap">{q.code}</pre>
-            </div>
-          ))}
+          {PG_CRUD.map(q => <QueryBlock key={q.label} q={q} color="text-sky-300" />)}
+        </div>
+      </div>
+
+      {/* Exploration queries */}
+      <div className="card">
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Exploration Queries (SQL)</h2>
+        <div className="space-y-3">
+          {PG_QUERIES.map(q => <QueryBlock key={q.label} q={q} color="text-sky-300" />)}
         </div>
       </div>
     </div>
@@ -336,19 +458,19 @@ function Neo4jTab() {
         </div>
       )}
 
-      {/* Sample queries */}
+      {/* Application CRUD */}
       <div className="card">
-        <h2 className="text-sm font-medium text-gray-400 mb-3">Sample Queries (Cypher)</h2>
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Application CRUD Operations</h2>
         <div className="space-y-3">
-          {NEO4J_QUERIES.map(q => (
-            <div key={q.label} className="bg-gray-900 rounded-lg p-3 border border-gray-800">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-gray-400 font-medium">{q.label}</span>
-                <CopyButton text={q.code} />
-              </div>
-              <pre className="text-xs text-pink-300 font-mono whitespace-pre-wrap">{q.code}</pre>
-            </div>
-          ))}
+          {NEO4J_CRUD.map(q => <QueryBlock key={q.label} q={q} color="text-pink-300" />)}
+        </div>
+      </div>
+
+      {/* Exploration queries */}
+      <div className="card">
+        <h2 className="text-sm font-medium text-gray-400 mb-3">Exploration Queries (Cypher)</h2>
+        <div className="space-y-3">
+          {NEO4J_QUERIES.map(q => <QueryBlock key={q.label} q={q} color="text-pink-300" />)}
         </div>
       </div>
     </div>
